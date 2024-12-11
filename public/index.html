@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LLM Review Chain</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
+    <style>
+        .dot-flashing {
+            position: relative;
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background-color: #3b82f6;
+            animation: dot-flashing 1s infinite linear alternate;
+            animation-delay: .5s;
+        }
+        .dot-flashing::before, .dot-flashing::after {
+            content: '';
+            display: inline-block;
+            position: absolute;
+            top: 0;
+        }
+        .dot-flashing::before {
+            left: -15px;
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background-color: #3b82f6;
+            animation: dot-flashing 1s infinite alternate;
+            animation-delay: 0s;
+        }
+        .dot-flashing::after {
+            left: 15px;
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background-color: #3b82f6;
+            animation: dot-flashing 1s infinite alternate;
+            animation-delay: 1s;
+        }
+        @keyframes dot-flashing {
+            0% { background-color: #3b82f6; }
+            50%, 100% { background-color: #dbeafe; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-8">LLM Review Chain</h1>
+        
+        <div class="bg-white p-6 rounded-lg shadow-md mb-8">
+            <textarea 
+                id="promptInput" 
+                class="w-full h-32 p-4 border rounded-lg mb-4"
+                placeholder="Enter your prompt here..."></textarea>
+            <button 
+                id="submitBtn"
+                class="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600"
+                onclick="submitPrompt()">
+                Submit
+            </button>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loading" class="hidden">
+            <div class="flex items-center justify-center space-x-2 mb-8">
+                <div class="dot-flashing"></div>
+            </div>
+            <div id="loadingText" class="text-center text-gray-600"></div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results" class="space-y-6">
+            <div id="stage1" class="hidden bg-white p-6 rounded-lg shadow-md"></div>
+            <div id="stage2" class="hidden bg-white p-6 rounded-lg shadow-md"></div>
+            <div id="stage3" class="hidden bg-white p-6 rounded-lg shadow-md"></div>
+        </div>
+
+        <!-- Error Display -->
+        <div id="error" class="hidden bg-red-50 text-red-600 p-4 rounded-lg mt-4"></div>
+    </div>
+
+    <script>
+        const converter = new showdown.Converter();
+        let stage1Response, stage2Response;
+
+        function updateLoadingText(text) {
+            document.getElementById('loadingText').textContent = text;
+        }
+
+        function displayStage(stageNum, data) {
+            const stageDiv = document.getElementById(`stage${stageNum}`);
+            stageDiv.innerHTML = `
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-blue-600">
+                        ${data.model} - ${data.status}
+                    </h3>
+                </div>
+                <div class="prose">
+                    ${converter.makeHtml(data.content)}
+                </div>
+            `;
+            stageDiv.classList.remove('hidden');
+            stageDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        async function submitPrompt() {
+            const promptInput = document.getElementById('promptInput');
+            const loadingDiv = document.getElementById('loading');
+            const submitBtn = document.getElementById('submitBtn');
+            const errorDiv = document.getElementById('error');
+            const stages = [1, 2, 3].map(i => document.getElementById(`stage${i}`));
+
+            // Reset UI
+            stages.forEach(stage => stage.classList.add('hidden'));
+            errorDiv.classList.add('hidden');
+            loadingDiv.classList.remove('hidden');
+            submitBtn.disabled = true;
+
+            try {
+                // Stage 1
+                updateLoadingText('Processing initial analysis...');
+                const stage1 = await fetch('/review/stage1', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: promptInput.value })
+                });
+                const stage1Data = await stage1.json();
+                if (stage1Data.error) throw new Error(stage1Data.error);
+                stage1Response = stage1Data.content;
+                displayStage(1, stage1Data);
+
+                // Stage 2
+                updateLoadingText('Reviewing and improving...');
+                const stage2 = await fetch('/review/stage2', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ stage1Response })
+                });
+                const stage2Data = await stage2.json();
+                if (stage2Data.error) throw new Error(stage2Data.error);
+                stage2Response = stage2Data.content;
+                displayStage(2, stage2Data);
+
+                // Stage 3
+                updateLoadingText('Finalizing response...');
+                const stage3 = await fetch('/review/stage3', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ stage2Response })
+                });
+                const stage3Data = await stage3.json();
+                if (stage3Data.error) throw new Error(stage3Data.error);
+                displayStage(3, stage3Data);
+
+            } catch (error) {
+                errorDiv.textContent = `Error: ${error.message}`;
+                errorDiv.classList.remove('hidden');
+            } finally {
+                loadingDiv.classList.add('hidden');
+                submitBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
