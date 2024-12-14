@@ -5,6 +5,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
     <style>
+        /* Previous styles remain the same */
         .dot-flashing {
             position: relative;
             width: 10px;
@@ -53,12 +54,28 @@
                 id="promptInput" 
                 class="w-full h-32 p-4 border rounded-lg mb-4"
                 placeholder="Enter your prompt here..."></textarea>
-            <button 
-                id="submitBtn"
-                class="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600"
-                onclick="submitPrompt()">
-                Submit
-            </button>
+            
+            <div class="flex items-center gap-4 mb-4">
+                <select 
+                    id="modelSelect" 
+                    class="px-4 py-2 border rounded-lg bg-white">
+                    <option value="llama-3.3-70b-versatile">Llama 3.3 70B</option>
+                    <option value="mixtral-8x7b-32768">Mixtral 8x7B</option>
+                </select>
+                <div class="flex items-center gap-2">
+                    <input 
+                        type="checkbox" 
+                        id="useGroq" 
+                        class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                    <label for="useGroq" class="text-sm text-gray-700">Swap ChatGPT out for Groq (removes alternate analysis)</label>
+                </div>
+                <button 
+                    id="submitBtn"
+                    class="bg-blue-500 text-white px-12 ml-au py-2 rounded hover:bg-blue-600"
+                    onclick="submitPrompt()">
+                    Submit
+                </button>
+            </div>
         </div>
 
         <!-- Loading Indicator -->
@@ -71,6 +88,7 @@
 
         <!-- Results Section -->
         <div id="results" class="space-y-6">
+            <div id="groqResponse" class="hidden bg-white p-6 rounded-lg shadow-md"></div>
             <div id="stage1" class="hidden bg-white p-6 rounded-lg shadow-md"></div>
             <div id="stage2" class="hidden bg-white p-6 rounded-lg shadow-md"></div>
             <div id="stage3" class="hidden bg-white p-6 rounded-lg shadow-md"></div>
@@ -106,31 +124,55 @@
 
         async function submitPrompt() {
             const promptInput = document.getElementById('promptInput');
+            const modelSelect = document.getElementById('modelSelect');
+            const useGroq = document.getElementById('useGroq').checked;
             const loadingDiv = document.getElementById('loading');
             const submitBtn = document.getElementById('submitBtn');
             const errorDiv = document.getElementById('error');
-            const stages = [1, 2, 3].map(i => document.getElementById(`stage${i}`));
+            const groqResponseDiv = document.getElementById('groqResponse');
+            const stages = ['stage1', 'stage2', 'stage3'].map(id => document.getElementById(id));
 
             // Reset UI
             stages.forEach(stage => stage.classList.add('hidden'));
+            groqResponseDiv.classList.add('hidden');
             errorDiv.classList.add('hidden');
             loadingDiv.classList.remove('hidden');
             submitBtn.disabled = true;
 
             try {
+                // Only call the initial Groq response if not using Groq for all stages
+                if (!useGroq) {
+                    updateLoadingText('Getting Groq response...');
+                    const groqResponse = await fetch('/review/groq', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            prompt: promptInput.value,
+                            model: modelSelect.value
+                        })
+                    });
+                    const groqData = await groqResponse.json();
+                    if (groqData.error) throw new Error(groqData.error);
+                    displayGroqResponse(groqData);
+                }
+
                 // Stage 1
                 updateLoadingText('Processing initial analysis...');
                 const stage1 = await fetch('/review/stage1', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: promptInput.value })
+                    body: JSON.stringify({ 
+                        prompt: promptInput.value,
+                        useGroq,
+                        selectedModel: modelSelect.value
+                    })
                 });
                 const stage1Data = await stage1.json();
                 if (stage1Data.error) throw new Error(stage1Data.error);
                 stage1Response = stage1Data.content;
                 displayStage(1, stage1Data);
 
-                // Stage 2
+                // Stage 2 (Claude)
                 updateLoadingText('Reviewing and improving...');
                 const stage2 = await fetch('/review/stage2', {
                     method: 'POST',
@@ -147,7 +189,11 @@
                 const stage3 = await fetch('/review/stage3', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ stage2Response })
+                    body: JSON.stringify({ 
+                        stage2Response,
+                        useGroq,
+                        selectedModel: modelSelect.value
+                    })
                 });
                 const stage3Data = await stage3.json();
                 if (stage3Data.error) throw new Error(stage3Data.error);
@@ -160,6 +206,23 @@
                 loadingDiv.classList.add('hidden');
                 submitBtn.disabled = false;
             }
+        }
+
+        // Keep the displayGroqResponse function for when useGroq is false
+        function displayGroqResponse(data) {
+            const responseDiv = document.getElementById('groqResponse');
+            responseDiv.innerHTML = `
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-red-600">
+                        Alternate Groq Response using (${data.model})
+                    </h3>
+                </div>
+                <div class="prose">
+                    ${converter.makeHtml(data.content)}
+                </div>
+            `;
+            responseDiv.classList.remove('hidden');
+            responseDiv.scrollIntoView({ behavior: 'smooth' });
         }
     </script>
 </body>
