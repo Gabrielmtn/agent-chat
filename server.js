@@ -145,7 +145,7 @@ app.post('/review/stage3', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: 'Error in stage 3', details: error.message });
     }
-});
+}); 
 
 // Add this new endpoint after your existing endpoints
 app.post('/review/groq', async (req, res) => {
@@ -176,7 +176,6 @@ app.post('/review/groq', async (req, res) => {
         res.status(500).json({ error: 'Error in Groq API call', details: error.message });
     }
 });
-
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
